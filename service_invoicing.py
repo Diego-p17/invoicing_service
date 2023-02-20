@@ -25,10 +25,10 @@ class Service_invoicing:
             self.dataConfig      = dataConfig
             self.saveBilling     = saveBilling
             self.idDevice        = idDevice
+            self.dataGovernor    = ""
 
             self.getSettings()
-            self.dataGovernor = self.configService()
-            self.updateResolution(self.dataGovernor)
+            self.updateResolution()
 
             return True
 
@@ -454,7 +454,9 @@ class Service_invoicing:
                     if self.dataGovernor.get("Shift") == None:  self.dataGovernor["Shift"] = 0
                     controlShift["Id_Shift"] = self.dataGovernor.get("Shift")
 
-                else: controlShift["Id_Shift"]   = 0
+                else:
+                    self.dataGovernor = self.configService()
+                    controlShift["Id_Shift"]   = self.dataGovernor.get("Shift")
 
                 controlShift["NextIdShift"]      = controlShift["Id_Shift"] + 1
                 controlShift["InternalControl"]  = controlShift["InitialCash"]
@@ -464,7 +466,6 @@ class Service_invoicing:
                 createTurn.close()
 
                 idShift = controlShift["Id_Shift"]
-
 
             else:
                 with open(self.controlShift) as turn: currentShift = json.load(turn)
@@ -496,135 +497,140 @@ class Service_invoicing:
             if not content:content =  {"Id_People": 0 , "InitialCash": 0}
             if not isinstance(content["InitialCash"],int): raise Exception("Monto inicial debe ser numerico")
 
-            logging.info("--------------------------------------------------------------------")
-            logging.info("                           Abriendo turno                           ")
-            logging.info("--------------------------------------------------------------------")
-            logging.info(f"Datos para abrir turno: {content}")
+            checkResolution, message = self.checkResolution()
 
-            #* CHECK FILES IN APP
-            url_ControlShift  = f"{self.dataPath}shiftControl/"
-            if not os.path.isdir(url_ControlShift): os.makedirs(url_ControlShift)
+            if checkResolution:
+                logging.info("--------------------------------------------------------------------")
+                logging.info("                           Abriendo turno                           ")
+                logging.info("--------------------------------------------------------------------")
+                logging.info(f"Datos para abrir turno: {content}")
 
-            if os.path.exists(self.controlShift):
-                with open(self.controlShift) as file: controlShift = json.load(file)
-                file.close()
+                #* CHECK FILES IN APP
+                url_ControlShift  = f"{self.dataPath}shiftControl/"
+                if not os.path.isdir(url_ControlShift): os.makedirs(url_ControlShift)
 
-            if controlShift.get("Status") == 0 :
+                if os.path.exists(self.controlShift):
+                    with open(self.controlShift) as file: controlShift = json.load(file)
+                    file.close()
 
-                if self.dataGovernor:
-                    if self.dataGovernor.get("Shift") == None : self.dataGovernor["Shift"] = 0
-                    if controlShift.get("Id_Shift") < self.dataGovernor.get("Shift") :
-                        logging.info("Turno desactualizado, Creando un nuevo turno")
+                if controlShift.get("Status") == 0 :
 
-                        dataturn = self.generateTemplateTurn()
-                        dataturn["Id_Shift"]         = self.dataGovernor.get("Shift", 1) + 1
-                        dataturn["NextIdShift"]      = dataturn["Id_Shift"] + 1
+                    if self.dataGovernor:
+                        if self.dataGovernor.get("Shift") == None : self.dataGovernor["Shift"] = 0
+                        if controlShift.get("Id_Shift") < self.dataGovernor.get("Shift") :
+                            logging.info("Turno desactualizado, Creando un nuevo turno")
 
-                        with open(self.controlShift,'w') as createTurn: json.dump(dataturn, createTurn, indent= 4)
-                        createTurn.close()
+                            dataturn = self.generateTemplateTurn()
+                            dataturn["Id_Shift"]         = self.dataGovernor.get("Shift", 1) + 1
+                            dataturn["NextIdShift"]      = dataturn["Id_Shift"] + 1
 
-                        self.id_shift = dataturn["Id_Shift"]
-                        self.backupTurn(self.id_shift)
-                        response = True
+                            with open(self.controlShift,'w') as createTurn: json.dump(dataturn, createTurn, indent= 4)
+                            createTurn.close()
+
+                            self.id_shift = dataturn["Id_Shift"]
+                            self.backupTurn(self.id_shift)
+                            response = True
+
+                    else :
+                        currentShift      = "Ya existe un turno Abierto"
+                        self.idPeopleTurn = controlShift["Id_PeopleOpening"]
 
                 else :
-                    currentShift      = "Ya existe un turno Abierto"
-                    self.idPeopleTurn = controlShift["Id_PeopleOpening"]
+                    # !JSON CONTROL INTERNAL SHIFTS
+                    logging.info("Abriendo turno")
+                    currentShift = self.generateTemplateTurn()
 
-            else :
-                # !JSON CONTROL INTERNAL SHIFTS
-                logging.info("Abriendo turno")
-                currentShift = self.generateTemplateTurn()
+                    if self.dataGovernor:
+                        if not self.dataGovernor.get("Shift"):
+                            currentShift["Id_Shift"]         = controlShift["NextIdShift"]
+                            currentShift["NextIdShift"]      = controlShift["NextIdShift"] + 1
 
-                if self.dataGovernor:
-                    if not self.dataGovernor.get("Shift"):
-                        currentShift["Id_Shift"]         = controlShift["NextIdShift"]
-                        currentShift["NextIdShift"]      = controlShift["NextIdShift"] + 1
+                        elif controlShift.get("Id_Shift") < self.dataGovernor.get("Shift") :
 
-                    elif controlShift.get("Id_Shift") < self.dataGovernor.get("Shift") :
-
-                        currentShift["Id_Shift"]         = self.dataGovernor.get("Shift") + 1
-                        currentShift["NextIdShift"]      = controlShift["Id_Shift"] + 1
+                            currentShift["Id_Shift"]         = self.dataGovernor.get("Shift") + 1
+                            currentShift["NextIdShift"]      = controlShift["Id_Shift"] + 1
+                        else:
+                            currentShift["Id_Shift"]         = controlShift["NextIdShift"]
+                            currentShift["NextIdShift"]      = controlShift["NextIdShift"] + 1
                     else:
-                        currentShift["Id_Shift"]         = controlShift["NextIdShift"]
-                        currentShift["NextIdShift"]      = controlShift["NextIdShift"] + 1
-                else:
-                        currentShift["Id_Shift"]         = controlShift["NextIdShift"]
-                        currentShift["NextIdShift"]      = controlShift["NextIdShift"] + 1
+                            currentShift["Id_Shift"]         = controlShift["NextIdShift"]
+                            currentShift["NextIdShift"]      = controlShift["NextIdShift"] + 1
 
-                currentShift["Id_PeopleOpening"] = content.get("Id_People", 0)
-                currentShift["InitialCash"]      = content.get("InitialCash", 0)
-                currentShift["InternalControl"]  = currentShift["InitialCash"]
+                    currentShift["Id_PeopleOpening"] = content.get("Id_People", 0)
+                    currentShift["InitialCash"]      = content.get("InitialCash", 0)
+                    currentShift["InternalControl"]  = currentShift["InitialCash"]
 
-                self.id_shift     = currentShift["Id_Shift"]
-                self.idPeopleTurn = currentShift["Id_PeopleOpening"]
+                    self.id_shift     = currentShift["Id_Shift"]
+                    self.idPeopleTurn = currentShift["Id_PeopleOpening"]
 
-                with open(self.controlShift,'w') as createTurn: json.dump(currentShift, createTurn, indent= 4)
-                createTurn.close()
+                    with open(self.controlShift,'w') as createTurn: json.dump(currentShift, createTurn, indent= 4)
+                    createTurn.close()
 
 
-                # !Generate Invoice OpenShift
-                """
-                @Empresa\n
-                @Direccion\n
-                @Telefono\n
-                NIT: @Nit\n\n\n
-                ID Turno:    @TurnoId\n
-                ID Apertura: @AperturaId\n
-                --------------------------------------------\n
-                @DataAux\n
-                --------------------------------------------\n
-                Fecha Apertura:      @FechaApertura\n
-                Factura Inicio:      @FacturaInicio\n\n
-                Monto Inicial:       @Moneda @MontoInicial\n
-                --------------------------------------------\n\n\n
-                """
-                templateInvoice = "@Empresa\n@Direccion\n@Telefono\nNIT: @Nit\n\n\nID Turno:    @TurnoId\nID Apertura: @AperturaId\n--------------------------------------------\n@DataAux\n--------------------------------------------\nFecha Apertura:      @FechaApertura\nFactura Inicio:      @FacturaInicio\n\nMonto Inicial:       @Moneda @MontoInicial\n--------------------------------------------\n\n\n"
+                    # !Generate Invoice OpenShift
+                    """
+                    @Empresa\n
+                    @Direccion\n
+                    @Telefono\n
+                    NIT: @Nit\n\n\n
+                    ID Turno:    @TurnoId\n
+                    ID Apertura: @AperturaId\n
+                    --------------------------------------------\n
+                    @DataAux\n
+                    --------------------------------------------\n
+                    Fecha Apertura:      @FechaApertura\n
+                    Factura Inicio:      @FacturaInicio\n\n
+                    Monto Inicial:       @Moneda @MontoInicial\n
+                    --------------------------------------------\n\n\n
+                    """
+                    templateInvoice = "@Empresa\n@Direccion\n@Telefono\nNIT: @Nit\n\n\nID Turno:    @TurnoId\nID Apertura: @AperturaId\n--------------------------------------------\n@DataAux\n--------------------------------------------\nFecha Apertura:      @FechaApertura\nFactura Inicio:      @FacturaInicio\n\nMonto Inicial:       @Moneda @MontoInicial\n--------------------------------------------\n\n\n"
 
-                enterprise = self.dataConfig["template_invoice"]
+                    enterprise = self.dataConfig["template_invoice"]
 
-                invoiceOpenShift = templateInvoice
-                invoiceOpenShift = invoiceOpenShift.replace("@Empresa", enterprise["enterprise"])
-                invoiceOpenShift = invoiceOpenShift.replace("@Direccion", enterprise["address"])
-                invoiceOpenShift = invoiceOpenShift.replace("@Telefono", enterprise["cellphone"])
-                invoiceOpenShift = invoiceOpenShift.replace("@Nit", enterprise["nit"])
+                    invoiceOpenShift = templateInvoice
+                    invoiceOpenShift = invoiceOpenShift.replace("@Empresa", enterprise["enterprise"])
+                    invoiceOpenShift = invoiceOpenShift.replace("@Direccion", enterprise["address"])
+                    invoiceOpenShift = invoiceOpenShift.replace("@Telefono", enterprise["cellphone"])
+                    invoiceOpenShift = invoiceOpenShift.replace("@Nit", enterprise["nit"])
 
-                invoiceOpenShift = invoiceOpenShift.replace("@DataAux", "Factura Apertura de Turno")
-                invoiceOpenShift = invoiceOpenShift.replace("@TurnoId", str(self.id_shift))
-                invoiceOpenShift = invoiceOpenShift.replace("@AperturaId", str(self.idPeopleTurn))
-                invoiceOpenShift = invoiceOpenShift.replace("@FechaApertura", str(currentShift["InitialDate"]))
-                invoiceOpenShift = invoiceOpenShift.replace("@FacturaInicio", str(currentShift["InitInvoice"]))
+                    invoiceOpenShift = invoiceOpenShift.replace("@DataAux", "Factura Apertura de Turno")
+                    invoiceOpenShift = invoiceOpenShift.replace("@TurnoId", str(self.id_shift))
+                    invoiceOpenShift = invoiceOpenShift.replace("@AperturaId", str(self.idPeopleTurn))
+                    invoiceOpenShift = invoiceOpenShift.replace("@FechaApertura", str(currentShift["InitialDate"]))
+                    invoiceOpenShift = invoiceOpenShift.replace("@FacturaInicio", str(currentShift["InitInvoice"]))
 
-                invoiceOpenShift = invoiceOpenShift.replace("@Moneda",str(self.currency_symbol))
-                invoiceOpenShift = invoiceOpenShift.replace("@MontoInicial", str(round(currentShift["InitialCash"])))
+                    invoiceOpenShift = invoiceOpenShift.replace("@Moneda",str(self.currency_symbol))
+                    invoiceOpenShift = invoiceOpenShift.replace("@MontoInicial", str(round(currentShift["InitialCash"])))
 
 
-                response = True
+                    response = True
 
-                # !JSON SEND OPENSHIFT
-                openTurn = {}
-                #* DATA OpenTurn
-                openTurn["JsonType"]     = 3
-                openTurn["Id_Device"]    =  int(self.idDevice)
-                openTurn["Id_Shift"]     =  int(currentShift["Id_Shift"])
-                openTurn["Id_People"]    =  content["Id_People"]
-                openTurn["InitialCash"]  =  content["InitialCash"]
-                openTurn["FinalCash"]    =  0
-                openTurn["InvoiceCount"] =  0
-                openTurn["InvoiceTotal"] =  0
-                openTurn["InitialDate"]  =  str(currentShift["InitialDate"] )
-                openTurn["Receipt"]      =  str(invoiceOpenShift)
-                openTurn["OpenShift"]    =  True
+                    # !JSON SEND OPENSHIFT
+                    openTurn = {}
+                    #* DATA OpenTurn
+                    openTurn["JsonType"]     = 3
+                    openTurn["Id_Device"]    =  int(self.idDevice)
+                    openTurn["Id_Shift"]     =  int(currentShift["Id_Shift"])
+                    openTurn["Id_People"]    =  content["Id_People"]
+                    openTurn["InitialCash"]  =  content["InitialCash"]
+                    openTurn["FinalCash"]    =  0
+                    openTurn["InvoiceCount"] =  0
+                    openTurn["InvoiceTotal"] =  0
+                    openTurn["InitialDate"]  =  str(currentShift["InitialDate"] )
+                    openTurn["Receipt"]      =  str(invoiceOpenShift)
+                    openTurn["OpenShift"]    =  True
 
-                nameShift = f"shiftResult-{int(time.time()*1000)}"
-                with open(self.saveBilling + str(nameShift) + '.json','w') as sendInvoice: json.dump(openTurn, sendInvoice, indent= 4)
-                sendInvoice.close()
+                    nameShift = f"shiftResult-{int(time.time()*1000)}"
+                    with open(self.saveBilling + str(nameShift) + '.json','w') as sendInvoice: json.dump(openTurn, sendInvoice, indent= 4)
+                    sendInvoice.close()
 
-                self.backupTurn(self.id_shift)
-                Invoice_bytes  = invoiceOpenShift.encode()
-                Invoice_Base64 = base64.b64encode(Invoice_bytes)
-                logging.info(invoiceOpenShift)
-
+                    self.backupTurn(self.id_shift)
+                    Invoice_bytes  = invoiceOpenShift.encode()
+                    Invoice_Base64 = base64.b64encode(Invoice_bytes)
+                    logging.info(invoiceOpenShift)
+            else:
+                response         = checkResolution
+                invoiceOpenShift = message
         except Exception as e:
             currentShift     = str(e) + ": " + traceback.format_exc()
             logging.error(f"Error abriendo turno: {currentShift}")
@@ -648,7 +654,6 @@ class Service_invoicing:
 
             if turn["Status"] == 1:
                 message = "EL TURNO YA FUE CERRADO"
-                retorno = False
                 invoiceCloseShift = ""
             else:
                 # diference = totalCash - turn["InternalControl"]
@@ -1282,7 +1287,7 @@ class Service_invoicing:
 
         return check, infoMessage
 
-    def updateResolution (self, dataResolution)-> None:
+    def updateResolution (self)-> None:
 
         try:
             url_ControlShift  = f"{self.dataPath}shiftControl/"
@@ -1290,9 +1295,9 @@ class Service_invoicing:
 
             if os.path.exists(self.nextInvoice):
 
-                # *Get Data Old Resolution
-                with open(self.nextInvoice) as resolution: nextinvoice = json.load(resolution)
-                resolution.close()
+                # *Get Data Resolution
+                with open(self.nextInvoice, "r") as file: self.resolution = json.load(file)
+                file.close()
 
             else:
                 logging.info(" ----------------> No se encontro Resolucion Local")
@@ -1309,37 +1314,43 @@ class Service_invoicing:
                                 "actualIndexResolution": 0
                                 }
 
-            #*Get Data New Resolution
-            if dataResolution:
-
-                # * Update Local Resolution
-                nextinvoice['prefijo']       = dataResolution["Prefijo"]
-                nextinvoice['numResolution'] = dataResolution["ResolutionNumber"]
-                nextinvoice['startNumber']   = dataResolution["BillingIniNumber"]
-                nextinvoice['endNumber']     = dataResolution["BillingEndNumber"]
-                nextinvoice['startDate']     = dataResolution["DateIniResolution"]
-                nextinvoice['endDate']       = dataResolution["DateEndResolution"]
-
-                if nextinvoice["actualIndexResolution"] < dataResolution["BillingNumber"]:
-                    nextinvoice["actualIndexResolution"] = dataResolution["BillingNumber"] + 1
-
-                with open(self.nextInvoice, "w") as updateResolution: json.dump(nextinvoice, updateResolution, indent = 4)
-                updateResolution.close()
-
-                logging.info((f" -------------> Resolucion actualizada"))
-                with open(self.nextInvoice,'r') as file: self.resolution = json.load(file)
-                file.close()
-
-            else:
-                logging.info(f" --------------> Ha ocurrido un error al Actualizar la resolucion")
-                logging.info(f" --------------> Se Usara resolucion local ")
-                logging.info(f" --------------> {nextinvoice}")
-
-                with open(self.nextInvoice, "w") as updateResolution: json.dump(nextinvoice, updateResolution, indent = 4)
-                updateResolution.close()
+                with open(self.nextInvoice, "w") as createResolution: json.dump(nextinvoice, createResolution, indent = 4)
+                createResolution.close()
 
                 with open(self.nextInvoice,'r') as file: self.resolution = json.load(file)
                 file.close()
+
+            if self.resolution:
+                if self.resolution.get("prefijo") == "Empty" or self.resolution.get("actualIndexResolution") == 0:
+
+                    self.dataGovernor = self.configService()
+
+                    if self.dataGovernor:
+                         # * Update Local Resolution
+                        nextinvoice = {}
+                        nextinvoice['prefijo']       = self.dataGovernor["Prefijo"]
+                        nextinvoice['numResolution'] = self.dataGovernor["ResolutionNumber"]
+                        nextinvoice['startNumber']   = self.dataGovernor["BillingIniNumber"]
+                        nextinvoice['endNumber']     = self.dataGovernor["BillingEndNumber"]
+                        nextinvoice['startDate']     = self.dataGovernor["DateIniResolution"]
+                        nextinvoice['endDate']       = self.dataGovernor["DateEndResolution"]
+                        nextinvoice["actualIndexResolution"] = self.dataGovernor["BillingNumber"] + 1
+
+                        with open(self.nextInvoice, "w") as updateResolution: json.dump(nextinvoice, updateResolution, indent = 4)
+                        updateResolution.close()
+
+                        logging.info((f" -------------> Resolucion actualizada"))
+                        with open(self.nextInvoice,'r') as file: self.resolution = json.load(file)
+                        file.close()
+                    else:
+                        logging.info(f" --------------> Ha ocurrido un error al Actualizar la resolucion")
+                        logging.info(f" --------------> Se Usara resolucion local ")
+
+                        with open(self.nextInvoice,'r') as file: self.resolution = json.load(file)
+                        file.close()
+                else:
+                    with open(self.nextInvoice,'r') as file: self.resolution = json.load(file)
+                    file.close()
 
         except Exception as e:
             currentShift     = str(e) + ": " + traceback.format_exc()
@@ -1353,9 +1364,9 @@ class Service_invoicing:
                 logging.info("----------------------------")
                 logging.info(f"ID      : {id}")
                 logging.info(f"MCMD    : {mcmd}")
-                logging.info(f"RESPONSE: {raw1}")
+                # logging.info(f"RESPONSE: {raw1}")
                 logging.info("----------------------------")
-                logging.info(f"raw1 =  {raw1}")
+
                 self.responseData = raw1
 
             self.responseData = None
@@ -1555,7 +1566,7 @@ if __name__ == "__main__":
                             "BillinDateStart": "2022-12-01",
                             "BillinDateEnd": "2023-12-31"
                         }
-                     ]
+                    ]
     saveBilling    = "C:/mascotas/kiosTag/copia/python/kiosk_tag/data/transactions/"
     dataOpen       = {"Id_People": 1 , "InitialCash": 0}
     dataClose      = {"Id_People": 1 , "FinalCash": 0}
